@@ -1,0 +1,15 @@
+[build-system]
+requires=['setuptools>=68','wheel']
+build-backend='setuptools.build_meta'
+[project]
+name='pmwMRMS'
+version='0.1.0'
+description='Passive microwave collocation with native MRMS grids'
+readme='README.md'
+requires-python='>=3.10'
+dependencies=['numpy','scipy','h5py','requests','xarray','netCDF4','matplotlib','cfgrib','eccodes']
+[project.optional-dependencies]
+maps=['cartopy']
+test=['pytest']
+[tool.setuptools.packages.find]
+where=['src']
