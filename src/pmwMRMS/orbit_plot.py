@@ -5,6 +5,7 @@ import numpy as np
 
 
 def plot_orbit(path, show=True, states=None):
+    from scipy.ndimage import binary_fill_holes
     import matplotlib.pyplot as plt
     import matplotlib.colors as colors
     from matplotlib.patches import Patch
@@ -64,6 +65,26 @@ def plot_orbit(path, show=True, states=None):
             if lon[0]>lon[-1]: v=v[:,::-1]
             if lat[0]>lat[-1]: v=v[::-1]
             return ax.imshow(v,extent=[lon.min()-dx,lon.max()+dx,lat.min()-dy,lat.max()+dy],origin='lower',interpolation='nearest',transform=pc,cmap=cmap,norm=norm,zorder=z)
+        def matched_outline(ax, mask):
+            # Outline the matched footprint, not individual internal TB gaps.
+            mask = binary_fill_holes(np.asarray(mask, dtype=bool))
+            if not mask.any():
+                return
+            # Pad with unmatched cells so edges at the MRMS grid limit close.
+            xp = np.r_[2*lon[0]-lon[1], lon, 2*lon[-1]-lon[-2]]
+            yp = np.r_[2*lat[0]-lat[1], lat, 2*lat[-1]-lat[-2]]
+            ax.contour(xp, yp, np.pad(mask, 1).astype(np.uint8),
+                       levels=[0.5], colors='black', linewidths=1.3,
+                       transform=pc, zorder=14)
+        def native_outline(ax, x, y):
+            # Perimeter of the native swath's outermost beam centers.
+            xx = np.r_[x[0,:], x[1:,-1], x[-1,-2::-1], x[-2::-1,0]]
+            yy = np.r_[y[0,:], y[1:,-1], y[-1,-2::-1], y[-2::-1,0]]
+            xx = np.r_[xx, xx[0]]; yy = np.r_[yy, yy[0]]
+            jumps = np.r_[False, np.abs(np.diff(xx)) > 180]
+            xx[jumps] = np.nan; yy[jumps] = np.nan
+            ax.plot(xx, yy, color='black', linewidth=1.3,
+                    transform=pc, zorder=14)
         def native(ax,v,cmap,norm,z=3):
             return ax.pcolormesh(x,y,v,transform=pc,cmap=cmap,norm=norm,shading='nearest',rasterized=True,zorder=z)
         def phase(r,s):
@@ -84,6 +105,8 @@ def plot_orbit(path, show=True, states=None):
             setup(axes[1,0],2,f'MRMS phase on PMW grid ({ref})')
             setup(axes[1,1],3,f'MRMS rate on PMW grid ({ref})')
             pair(*axes[1],d[ref+'_rain'],d[ref+'_snow'],native)
+            for ax in axes.flat:
+                native_outline(ax, x, y)
         elif mode=='PMWtoMRMS':
             # Use the exact saved beam-time match for the displayed channels.
             # Low-frequency group takes priority in overlapping coverage;
@@ -103,11 +126,14 @@ def plot_orbit(path, show=True, states=None):
                 valid=np.isfinite(tb)&np.isfinite(rr)&np.isfinite(ss)&(rr>=0)&(ss>=0)&(ti>=0)&(ti<len(d['mrms_times']))
                 setup(ax,j+2,f'{g}: {f:g} GHz TB on MRMS grid')
                 regular(ax,np.where(valid,tb,np.nan),'turbo',colors.Normalize(100,320))
+                matched_outline(ax, valid)
                 take=valid & (time_index<0)
                 r[take],s[take],time_index[take]=rr[take],ss[take],ti[take]
             setup(axes[0,0],0,'Coincident MRMS precipitation phase')
             setup(axes[0,1],1,'Coincident MRMS precipitation rate')
             pair(*axes[0],r,s,regular)
+            for ax in axes[0]:
+                matched_outline(ax, time_index >= 0)
             used=np.unique(time_index[time_index>=0])
         else: raise ValueError(f'Unknown mapping mode: {mode}')
         # Dedicated figure-level colorbars never resize the map axes.
