@@ -12,7 +12,6 @@ def plot_orbit(path, show=True, states=None):
     import cartopy.crs as ccrs
     import cartopy.feature as cf
     import matplotlib.ticker as mticker
-    from matplotlib.gridspec import GridSpec
     from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 
     pc = ccrs.PlateCarree()
@@ -31,9 +30,14 @@ def plot_orbit(path, show=True, states=None):
         groups, mode = list(d['groups']), str(d['mode'])
         if 'reference_rain' not in d or 'reference_snow' not in d:
             raise ValueError('Original MRMS reference missing. Regenerate orbit with updated package.')
-        fig = plt.figure(figsize=(19,10.5), facecolor='white')
-        gs = GridSpec(2, 2, figure=fig, left=.065, right=.98, bottom=.19, top=.92, wspace=.045, hspace=.10)
-        axes = np.array([[fig.add_subplot(gs[i,j], projection=proj) for j in range(2)] for i in range(2)])
+        fig = plt.figure(figsize=(19,11.6), facecolor='white')
+        # Fixed map rectangles: preserve geographic aspect and equal panel sizes.
+        left, right, gap = .065, .98, .012
+        width = (right - left - gap) / 2
+        height = width * fig.get_figwidth() / fig.get_figheight() * (30 / 65)
+        row_gap = .045
+        bottom = .18
+        axes = np.array([[fig.add_axes([left+j*(width+gap), bottom+(1-i)*(height+row_gap), width, height], projection=proj) for j in range(2)] for i in range(2)])
         def setup(ax,i,title):
             ax.set_extent([-130,-65,23,53],crs=pc)
             ax.set_facecolor(ocean)
@@ -51,15 +55,15 @@ def plot_orbit(path, show=True, states=None):
                 tick.set_fontweight('bold')
             for x,y,t in [(-126.5,33.5,'Pacific\nOcean'),(-70.5,32.5,'Atlantic\nOcean'),(-90,25.5,'Gulf of Mexico')]:
                 ax.text(x,y,t,transform=pc,ha='center',va='center',fontsize=10,fontstyle='italic',color='#315B80',zorder=15)
-            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=15)
-            ax.set_title(title,fontsize=13,fontweight='bold')
+            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=20, pad=7)
+            ax.set_title(title,fontsize=18,fontweight='bold',pad=7)
             ax.spines['geo'].set_linewidth(1)
         def regular(ax,v,cmap,norm,z=3):
             # Render at native grid spacing without allocating coordinate meshes.
             dx=abs(lon[1]-lon[0])/2; dy=abs(lat[1]-lat[0])/2
             if lon[0]>lon[-1]: v=v[:,::-1]
             if lat[0]>lat[-1]: v=v[::-1]
-            return ax.imshow(v,extent=[lon.min()-dx,lon.max()+dx,lat.min()-dy,lat.max()+dy],origin='lower',interpolation='nearest',transform=pc,cmap=cmap,norm=norm,zorder=z,regrid_shape=1500)
+            return ax.imshow(v,extent=[lon.min()-dx,lon.max()+dx,lat.min()-dy,lat.max()+dy],origin='lower',interpolation='nearest',transform=pc,cmap=cmap,norm=norm,zorder=z)
         def native(ax,v,cmap,norm,z=3):
             return ax.pcolormesh(x,y,v,transform=pc,cmap=cmap,norm=norm,shading='nearest',rasterized=True,zorder=z)
         def phase(r,s):
@@ -70,7 +74,7 @@ def plot_orbit(path, show=True, states=None):
             draw(axr,np.where(np.isfinite(p),0,np.nan),phase_cmap,phase_norm)
             draw(axr,np.where(p==1,r,np.nan),rain_cmap,rn,4)
             draw(axr,np.where(p==2,s,np.nan),snow_cmap,sn,5)
-            axp.legend(handles=[Patch(facecolor=c,label=t) for c,t in zip(['gainsboro','red','blue'],['No precipitation','Rain','Snow'])],loc='lower left',prop={'size':13,'weight':'bold'},framealpha=.95,edgecolor='#999999',handlelength=1.8)
+            axp.legend(handles=[Patch(facecolor=c,label=t) for c,t in zip(['gainsboro','red','blue'],['No Precip','Rain','Snow'])],loc='lower left',prop={'size':13,'weight':'bold'},framealpha=.95,edgecolor='#999999',handlelength=1.8)
         setup(axes[0,0],0,'Original MRMS precipitation phase')
         setup(axes[0,1],1,'Original MRMS precipitation rate')
         pair(*axes[0],d['reference_rain'],d['reference_snow'],regular)
@@ -105,7 +109,8 @@ def plot_orbit(path, show=True, states=None):
             for tick in cb.ax.get_xticklabels(): tick.set_fontweight('bold')
             cb.outline.set_linewidth(1.1)
         stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
-        fig.suptitle(f'MRMS reference: {stamp:%Y-%m-%d %H:%M UTC} | {mode}',fontsize=14,fontweight='bold',y=.975)
+        orbit_id = f"{int(d['orbit_number']):06d}" if 'orbit_number' in d else Path(path).stem.rsplit('_', 1)[-1]
+        fig.suptitle(f'MRMS time: {stamp:%Y-%m-%d %H:%M UTC} | PMW orbit: {orbit_id} | {mode}',fontsize=20,fontweight='bold',y=.985)
         fig.savefig(Path(path).with_suffix('.png'),dpi=300,bbox_inches='tight')
         if show: plt.show(block=True)
         plt.close(fig)
