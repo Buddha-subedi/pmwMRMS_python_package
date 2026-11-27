@@ -13,6 +13,7 @@ def plot_orbit(path, show=True, states=None):
     import cartopy.crs as ccrs
     import cartopy.feature as cf
     import matplotlib.ticker as mticker
+    map_extent = [-130, -65, 23, 53]
     from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 
     pc = ccrs.PlateCarree()
@@ -40,7 +41,7 @@ def plot_orbit(path, show=True, states=None):
         bottom = .18
         axes = np.array([[fig.add_axes([left+j*(width+gap), bottom+(1-i)*(height+row_gap), width, height], projection=proj) for j in range(2)] for i in range(2)])
         def setup(ax,i,title):
-            ax.set_extent([-130,-65,23,53],crs=pc)
+            ax.set_extent(map_extent,crs=pc)
             ax.set_facecolor(ocean)
             ax.add_feature(cf.LAND.with_scale('50m'),facecolor='#FAFAFA',zorder=0)
             ax.add_feature(cf.LAKES.with_scale('50m'),facecolor=ocean,edgecolor='#8AA5B8',linewidth=.35,zorder=1)
@@ -114,6 +115,11 @@ def plot_orbit(path, show=True, states=None):
             r = np.full((len(lat), len(lon)), np.nan, dtype=np.float32)
             s = np.full_like(r, np.nan)
             time_index = np.full(r.shape, -1, dtype=np.int32)
+            # Shared TB scale from finite matched pixels inside the visible map.
+            west, east, south, north = map_extent
+            visible = ((lat >= south) & (lat <= north))[:, None] & ((lon >= west) & (lon <= east))[None, :]
+            tb_min, tb_max = np.inf, -np.inf
+            tb_artists = []
             for j,low in enumerate([True,False]):
                 ax=axes[1,j]
                 choices=[(g,i,f) for g in groups for i,f in enumerate(d[g+'_frequency_ghz']) if (f<40 if low else f>80)]
@@ -125,10 +131,22 @@ def plot_orbit(path, show=True, states=None):
                 rr,ss,ti=d[g+'_rain'],d[g+'_snow'],d[g+'_time_index']
                 valid=np.isfinite(tb)&np.isfinite(rr)&np.isfinite(ss)&(rr>=0)&(ss>=0)&(ti>=0)&(ti<len(d['mrms_times']))
                 setup(ax,j+2,f'{g}: {f:g} GHz TB on MRMS grid')
-                regular(ax,np.where(valid,tb,np.nan),'turbo',colors.Normalize(100,320))
+                clipped = valid & visible
+                if clipped.any():
+                    tb_min = min(tb_min, float(tb[clipped].min()))
+                    tb_max = max(tb_max, float(tb[clipped].max()))
+                tb_artists.append(regular(ax,np.where(valid,tb,np.nan),'turbo',colors.Normalize(100,320)))
                 matched_outline(ax, valid)
                 take=valid & (time_index<0)
                 r[take],s[take],time_index[take]=rr[take],ss[take],ti[take]
+            tb_norm = None
+            if np.isfinite(tb_min) and np.isfinite(tb_max):
+                if tb_min == tb_max:
+                    tb_min -= 0.5
+                    tb_max += 0.5
+                tb_norm = colors.Normalize(tb_min, tb_max)
+                for artist in tb_artists:
+                    artist.set_norm(tb_norm)
             setup(axes[0,0],0,'Coincident MRMS precipitation phase')
             setup(axes[0,1],1,'Coincident MRMS precipitation rate')
             pair(*axes[0],r,s,regular)
@@ -139,8 +157,9 @@ def plot_orbit(path, show=True, states=None):
         # Dedicated figure-level colorbars never resize the map axes.
         scales = [(rain_cmap,rn,r'Rain rate (mm hr$^{-1}$)',np.arange(0,4.1,1)),
                   (snow_cmap,sn,r'Snow rate (mm hr$^{-1}$)',np.arange(0,1.01,.2))]
-        if mode == 'PMWtoMRMS':
-            scales.append(('turbo',colors.Normalize(100,320),'Brightness temperature (K)',[100,150,200,250,300,320]))
+        if mode == 'PMWtoMRMS' and tb_norm is not None:
+            ticks = np.linspace(tb_norm.vmin, tb_norm.vmax, 6)
+            scales.append(('turbo',tb_norm,'Brightness temperature (K)',ticks))
         n = len(scales)
         width = .25 if n == 3 else .32
         gap = .055
@@ -148,6 +167,8 @@ def plot_orbit(path, show=True, states=None):
         for j,(cmap,norm,label,ticks) in enumerate(scales):
             cax=fig.add_axes([start+j*(width+gap),.085,width,.022])
             cb=fig.colorbar(ScalarMappable(norm=norm,cmap=cmap),cax=cax,ticks=ticks,orientation='horizontal',extend='neither')
+            if label == 'Brightness temperature (K)':
+                cb.ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
             cb.set_label(label,fontsize=13,fontweight='bold',labelpad=5)
             cb.ax.tick_params(labelsize=12,width=1.4,length=5,direction='out')
             for tick in cb.ax.get_xticklabels(): tick.set_fontweight('bold')
