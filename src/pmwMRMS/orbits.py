@@ -731,6 +731,8 @@ def _run(
         # ----------------------------------------------------
 
         states = {}
+        reference_index = int(np.argmin(np.abs(stamps - (lo + hi) / 2)))
+        reference_rain = reference_snow = None
 
         lat = None
         lon = None
@@ -772,6 +774,8 @@ def _run(
                 )
 
             rain, snow = phase_rates(r, f)
+            if index == reference_index:
+                reference_rain, reference_snow = rain.copy(), snow.copy()
 
             del r, f
 
@@ -1036,6 +1040,9 @@ def _run(
 
         out = dict(
             mode=mode,
+            reference_rain=reference_rain,
+            reference_snow=reference_snow,
+            reference_time=stamps[reference_index],
             groups=np.array(list(states)),
             mrms_latitude=lat,
             mrms_longitude=lon,
