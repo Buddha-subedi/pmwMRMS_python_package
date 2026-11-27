@@ -28,7 +28,7 @@ def plot_orbit(path, show=True, states=None):
     with np.load(path) as d:
         lat, lon = d['mrms_latitude'], d['mrms_longitude']
         groups, mode = list(d['groups']), str(d['mode'])
-        if 'reference_rain' not in d or 'reference_snow' not in d:
+        if mode == 'MRMStoPMW' and ('reference_rain' not in d or 'reference_snow' not in d):
             raise ValueError('Original MRMS reference missing. Regenerate orbit with updated package.')
         fig = plt.figure(figsize=(19,11.6), facecolor='white')
         # Fixed map rectangles: preserve geographic aspect and equal panel sizes.
@@ -75,22 +75,40 @@ def plot_orbit(path, show=True, states=None):
             draw(axr,np.where(p==1,r,np.nan),rain_cmap,rn,4)
             draw(axr,np.where(p==2,s,np.nan),snow_cmap,sn,5)
             axp.legend(handles=[Patch(facecolor=c,label=t) for c,t in zip(['gainsboro','red','blue'],['No Precip','Rain','Snow'])],loc='lower left',prop={'size':13,'weight':'bold'},framealpha=.95,edgecolor='#999999',handlelength=1.8)
-        setup(axes[0,0],0,'Original MRMS precipitation phase')
-        setup(axes[0,1],1,'Original MRMS precipitation rate')
-        pair(*axes[0],d['reference_rain'],d['reference_snow'],regular)
         if mode=='MRMStoPMW':
+            setup(axes[0,0],0,'Original MRMS precipitation phase')
+            setup(axes[0,1],1,'Original MRMS precipitation rate')
+            pair(*axes[0],d['reference_rain'],d['reference_snow'],regular)
             ref=max(groups,key=lambda g: int(d[g+'_count'].sum()))
             x,y=d[ref+'_lon'],d[ref+'_lat']; x=(x+180)%360-180
             setup(axes[1,0],2,f'MRMS phase on PMW grid ({ref})')
             setup(axes[1,1],3,f'MRMS rate on PMW grid ({ref})')
             pair(*axes[1],d[ref+'_rain'],d[ref+'_snow'],native)
         elif mode=='PMWtoMRMS':
+            # Use the exact saved beam-time match for the displayed channels.
+            # Low-frequency group takes priority in overlapping coverage;
+            # high-frequency group fills gaps. Never average timestamps/rates.
+            r = np.full((len(lat), len(lon)), np.nan, dtype=np.float32)
+            s = np.full_like(r, np.nan)
+            time_index = np.full(r.shape, -1, dtype=np.int32)
             for j,low in enumerate([True,False]):
-                ax=axes[1,j]; choices=[(g,i,f) for g in groups for i,f in enumerate(d[g+'_frequency_ghz']) if (f<40 if low else f>80)]
-                if choices:
-                    g,i,f=choices[0]; setup(ax,j+2,f'{g}: {f:g} GHz TB on MRMS grid')
-                    im=regular(ax,d[g+'_data'][...,i],'turbo',colors.Normalize(100,320))
-                else: setup(ax,j+2,'TB unavailable')
+                ax=axes[1,j]
+                choices=[(g,i,f) for g in groups for i,f in enumerate(d[g+'_frequency_ghz']) if (f<40 if low else f>80)]
+                if not choices:
+                    setup(ax,j+2,'TB unavailable')
+                    continue
+                g,i,f=choices[0]
+                tb=d[g+'_data'][...,i]
+                rr,ss,ti=d[g+'_rain'],d[g+'_snow'],d[g+'_time_index']
+                valid=np.isfinite(tb)&np.isfinite(rr)&np.isfinite(ss)&(rr>=0)&(ss>=0)&(ti>=0)&(ti<len(d['mrms_times']))
+                setup(ax,j+2,f'{g}: {f:g} GHz TB on MRMS grid')
+                regular(ax,np.where(valid,tb,np.nan),'turbo',colors.Normalize(100,320))
+                take=valid & (time_index<0)
+                r[take],s[take],time_index[take]=rr[take],ss[take],ti[take]
+            setup(axes[0,0],0,'Coincident MRMS precipitation phase')
+            setup(axes[0,1],1,'Coincident MRMS precipitation rate')
+            pair(*axes[0],r,s,regular)
+            used=np.unique(time_index[time_index>=0])
         else: raise ValueError(f'Unknown mapping mode: {mode}')
         # Dedicated figure-level colorbars never resize the map axes.
         scales = [(rain_cmap,rn,r'Rain rate (mm hr$^{-1}$)',np.arange(0,4.1,1)),
@@ -108,9 +126,20 @@ def plot_orbit(path, show=True, states=None):
             cb.ax.tick_params(labelsize=12,width=1.4,length=5,direction='out')
             for tick in cb.ax.get_xticklabels(): tick.set_fontweight('bold')
             cb.outline.set_linewidth(1.1)
-        stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
         orbit_id = f"{int(d['orbit_number']):06d}" if 'orbit_number' in d else Path(path).stem.rsplit('_', 1)[-1]
-        fig.suptitle(f'MRMS time: {stamp:%Y-%m-%d %H:%M UTC} | PMW orbit: {orbit_id} | {mode}',fontsize=20,fontweight='bold',y=.985)
+        if mode == 'PMWtoMRMS':
+            if used.size:
+                stamps=d['mrms_times'][used]
+                start=datetime.fromtimestamp(float(stamps.min()),timezone.utc)
+                end=datetime.fromtimestamp(float(stamps.max()),timezone.utc)
+                end_text=end.strftime('%H:%M') if start.date()==end.date() else end.strftime('%Y-%m-%d %H:%M')
+                time_text=f'MRMS: {start:%Y-%m-%d %H:%M}–{end_text} UTC ({used.size} snapshots)'
+            else:
+                time_text='MRMS: no valid coincident pixels'
+        else:
+            stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
+            time_text=f'MRMS reference: {stamp:%Y-%m-%d %H:%M UTC}'
+        fig.suptitle(f'{time_text} | PMW orbit: {orbit_id} | {mode}',fontsize=20,fontweight='bold',y=.985)
         fig.savefig(Path(path).with_suffix('.png'),dpi=300,bbox_inches='tight')
         if show: plt.show(block=True)
         plt.close(fig)
