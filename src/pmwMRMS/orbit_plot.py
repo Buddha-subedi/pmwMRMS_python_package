@@ -53,13 +53,13 @@ def plot_orbit(path, show=True, states=None):
             ax.set_yticks(np.arange(25,54,5), crs=pc)
             ax.xaxis.set_major_formatter(LongitudeFormatter())
             ax.yaxis.set_major_formatter(LatitudeFormatter())
-            ax.tick_params(axis='both', which='major', direction='out', length=5, width=1.4, labelsize=12, labelbottom=i>=2, labelleft=i%2==0, bottom=i>=2, left=i%2==0)
+            ax.tick_params(axis='both', which='major', direction='out', length=6, width=2.4, labelsize=13, labelbottom=i>=2, labelleft=i%2==0, bottom=i>=2, left=i%2==0)
             for tick in ax.get_xticklabels()+ax.get_yticklabels():
                 tick.set_fontweight('bold')
             for x,y,t in [(-126.5,33.5,'Pacific\nOcean'),(-70.5,32.5,'Atlantic\nOcean'),(-90,25.5,'Gulf of Mexico')]:
                 ax.text(x,y,t,transform=pc,ha='center',va='center',fontsize=10,fontstyle='italic',color='#315B80',zorder=15)
-            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=24, pad=7)
-            ax.set_title(title,fontsize=20,fontweight='bold',pad=7)
+            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=25, pad=7)
+            ax.set_title(title,fontsize=21,fontweight='bold',pad=7)
             ax.spines['geo'].set_linewidth(1)
         def regular(ax,v,cmap,norm,z=3):
             # Render at native grid spacing without allocating coordinate meshes.
@@ -138,8 +138,8 @@ def plot_orbit(path, show=True, states=None):
             native_outline(axes[0,0],x,y)
             rate_only(axes[0,1],rr,ss,native)
             native_outline(axes[0,1],x,y)
-            axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=18,fontweight='bold',pad=7)
-            axes[0,1].set_title(f'MRMS on PMW grid ({ref})',fontsize=18,fontweight='bold',pad=7)
+            axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=19,fontweight='bold',pad=7)
+            axes[0,1].set_title(f'MRMS on PMW grid ({ref})',fontsize=19,fontweight='bold',pad=7)
             tb_artists=[]; tb_min,tb_max=np.inf,-np.inf
             west,east,south,north=map_extent
             for j,low in enumerate([True,False]):
@@ -225,7 +225,7 @@ def plot_orbit(path, show=True, states=None):
             if label == 'Brightness temperature (K)':
                 cb.ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
             cb.set_label(label,fontsize=13,fontweight='bold',labelpad=5)
-            cb.ax.tick_params(labelsize=12,width=1.4,length=5,direction='out')
+            cb.ax.tick_params(labelsize=13,width=2.4,length=6,direction='out')
             for tick in cb.ax.get_xticklabels(): tick.set_fontweight('bold')
             cb.outline.set_linewidth(1.1)
         orbit_id = f"{int(d['orbit_number']):06d}" if 'orbit_number' in d else Path(path).stem.rsplit('_', 1)[-1]
