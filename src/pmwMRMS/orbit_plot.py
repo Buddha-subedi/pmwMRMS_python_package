@@ -139,7 +139,7 @@ def plot_orbit(path, show=True, states=None):
             rate_only(axes[0,1],rr,ss,native)
             native_outline(axes[0,1],x,y)
             axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=18,fontweight='bold',pad=7)
-            axes[0,1].set_title(f'MRMS on PMW grid ({ref}; ref. {stamp:%H:%M} UTC)',fontsize=18,fontweight='bold',pad=7)
+            axes[0,1].set_title(f'MRMS on PMW grid ({ref})',fontsize=18,fontweight='bold',pad=7)
             tb_artists=[]; tb_min,tb_max=np.inf,-np.inf
             west,east,south,north=map_extent
             for j,low in enumerate([True,False]):
