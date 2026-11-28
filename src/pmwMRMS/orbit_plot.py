@@ -32,13 +32,13 @@ def plot_orbit(path, show=True, states=None):
         groups, mode = list(d['groups']), str(d['mode'])
         if mode == 'MRMStoPMW' and ('reference_rain' not in d or 'reference_snow' not in d):
             raise ValueError('Original MRMS reference missing. Regenerate orbit with updated package.')
-        fig = plt.figure(figsize=(22,17), facecolor='white')
+        fig = plt.figure(figsize=(22,16.2), facecolor='white')
         # Fixed map rectangles with a 1.4 vertical aspect multiplier.
         left, right, gap = .065, .98, .012
         width = (right - left - gap) / 2
         height = width * fig.get_figwidth() / fig.get_figheight() * (30 / 65) * 1.4
-        row_gap = .055
-        bottom = .12
+        row_gap = .040
+        bottom = .105
         axes = np.array([[fig.add_axes([left+j*(width+gap), bottom+(1-i)*(height+row_gap), width, height], projection=proj) for j in range(2)] for i in range(2)])
         def setup(ax,i,title):
             ax.set_extent(map_extent,crs=pc)
@@ -66,7 +66,7 @@ def plot_orbit(path, show=True, states=None):
             dx=abs(lon[1]-lon[0])/2; dy=abs(lat[1]-lat[0])/2
             if lon[0]>lon[-1]: v=v[:,::-1]
             if lat[0]>lat[-1]: v=v[::-1]
-            return ax.imshow(v,extent=[lon.min()-dx,lon.max()+dx,lat.min()-dy,lat.max()+dy],origin='lower',interpolation='nearest',transform=pc,cmap=cmap,norm=norm,zorder=z)
+            return ax.imshow(v,extent=[lon.min()-dx,lon.max()+dx,lat.min()-dy,lat.max()+dy],origin='lower',interpolation='nearest',transform=pc,cmap=cmap,norm=norm,zorder=z,aspect=1.4)
         def matched_outline(ax, mask):
             # Outline the matched footprint, not individual internal TB gaps.
             mask = binary_fill_holes(np.asarray(mask, dtype=bool))
@@ -119,16 +119,50 @@ def plot_orbit(path, show=True, states=None):
             draw(axr,np.where(p==2,s,np.nan),snow_cmap,sn,5)
             axp.legend(handles=[Patch(facecolor=c,label=t) for c,t in zip(['gainsboro','red','blue'],['No Precip','Rain','Snow'])],loc='lower left',prop={'size':13,'weight':'bold'},framealpha=.95,edgecolor='#999999',handlelength=1.8)
         if mode=='MRMStoPMW':
-            setup(axes[0,0],0,'Original MRMS precipitation phase')
-            setup(axes[0,1],1,'Original MRMS precipitation rate')
-            pair(*axes[0],d['reference_rain'],d['reference_snow'],regular)
             ref=max(groups,key=lambda g: int(d[g+'_count'].sum()))
             x,y=d[ref+'_lon'],d[ref+'_lat']; x=(x+180)%360-180
-            setup(axes[1,0],2,f'MRMS phase on PMW grid ({ref})')
-            setup(axes[1,1],3,f'MRMS rate on PMW grid ({ref})')
-            pair(*axes[1],d[ref+'_rain'],d[ref+'_snow'],native)
-            for ax in axes.flat:
-                native_outline(ax, x, y)
+            rr,ss=d[ref+'_rain'],d[ref+'_snow']
+            owner=d[ref+'_owner']
+            overlap=owner>=0
+            r=np.where(overlap,d['reference_rain'],np.nan)
+            s=np.where(overlap,d['reference_snow'],np.nan)
+            stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
+            setup(axes[0,0],0,'Coincident MRMS precipitation rate')
+            setup(axes[0,1],1,f'MRMS rate on PMW grid ({ref})')
+            def rate_only(ax,r,s,draw):
+                p=phase(r,s)
+                draw(ax,np.where(np.isfinite(p),0,np.nan),phase_cmap,phase_norm)
+                draw(ax,np.where(p==1,r,np.nan),rain_cmap,rn,4)
+                draw(ax,np.where(p==2,s,np.nan),snow_cmap,sn,5)
+            rate_only(axes[0,0],r,s,regular)
+            matched_outline(axes[0,0],overlap)
+            rate_only(axes[0,1],rr,ss,native)
+            native_outline(axes[0,1],x,y)
+            axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=18,fontweight='bold',pad=7)
+            axes[0,1].set_title(f'MRMS on PMW grid ({ref}; ref. {stamp:%H:%M} UTC)',fontsize=18,fontweight='bold',pad=7)
+            tb_artists=[]; tb_min,tb_max=np.inf,-np.inf
+            west,east,south,north=map_extent
+            for j,low in enumerate([True,False]):
+                ax=axes[1,j]
+                choices=[(g,i,f) for g in groups for i,f in enumerate(d[g+'_frequency_ghz']) if (f<40 if low else f>80)]
+                if not choices:
+                    setup(ax,j+2,'TB unavailable'); continue
+                g,i,f=choices[0]
+                x,y=d[g+'_lon'],d[g+'_lat']; x=(x+180)%360-180
+                tb=d[g+'_data'][...,i]
+                valid=np.isfinite(tb)&np.isfinite(d[g+'_rain'])&np.isfinite(d[g+'_snow'])
+                clipped=valid & (x>=west)&(x<=east)&(y>=south)&(y<=north)
+                setup(ax,j+2,f'{g}: {f:g} GHz TB on PMW grid')
+                if clipped.any():
+                    tb_min=min(tb_min,float(tb[clipped].min())); tb_max=max(tb_max,float(tb[clipped].max()))
+                artist=native(ax,np.where(valid,tb,np.nan),'turbo',colors.Normalize(100,320))
+                if artist is not None: tb_artists.append(artist)
+                native_outline(ax,x,y)
+            tb_norm=None
+            if np.isfinite(tb_min) and np.isfinite(tb_max):
+                if tb_min==tb_max: tb_min-=.5; tb_max+=.5
+                tb_norm=colors.Normalize(tb_min,tb_max)
+                for artist in tb_artists: artist.set_norm(tb_norm)
         elif mode=='PMWtoMRMS':
             # Use the exact saved beam-time match for the displayed channels.
             # Low-frequency group takes priority in overlapping coverage;
@@ -178,7 +212,7 @@ def plot_orbit(path, show=True, states=None):
         # Dedicated figure-level colorbars never resize the map axes.
         scales = [(rain_cmap,rn,r'Rain rate (mm hr$^{-1}$)',np.arange(0,4.1,1)),
                   (snow_cmap,sn,r'Snow rate (mm hr$^{-1}$)',np.arange(0,1.01,.2))]
-        if mode == 'PMWtoMRMS' and tb_norm is not None:
+        if tb_norm is not None:
             ticks = np.linspace(tb_norm.vmin, tb_norm.vmax, 6)
             scales.append(('turbo',tb_norm,'Brightness temperature (K)',ticks))
         n = len(scales)
@@ -207,7 +241,23 @@ def plot_orbit(path, show=True, states=None):
         else:
             stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
             time_text=f'MRMS reference: {stamp:%Y-%m-%d %H:%M UTC}'
-        fig.suptitle(f'{time_text} | PMW orbit: {orbit_id} | {mode}',fontsize=26,fontweight='bold',y=.985)
+        # Use actual PMW filename orbit start/end, not MRMS snapshot times.
+        import re
+        name=Path(str(d['pmw_file'])).name if 'pmw_file' in d else ''
+        sensor=Path(path).stem.split('_')[1]
+        match=re.search(r'(\d{8})-S(\d{6})-E(\d{6})',name)
+        if match:
+            from datetime import timedelta
+            day,st,en=match.groups()
+            start=datetime.strptime(day+st,'%Y%m%d%H%M%S')
+            end=datetime.strptime(day+en,'%Y%m%d%H%M%S')
+            if end<start: end+=timedelta(days=1)
+            end_text=end.strftime('%H:%M:%S' if end.date()==start.date() else '%Y-%m-%d %H:%M:%S')
+            orbit_time=f'{start:%Y-%m-%d %H:%M:%S}–{end_text} UTC'
+        else:
+            orbit_time='orbit time unavailable'
+        for ax in axes.flat: ax.set_aspect(1.4,adjustable='box')
+        fig.suptitle(f'{sensor} orbit: {orbit_id} | {orbit_time} | {mode}',fontsize=23,fontweight='bold',y=.985)
         fig.savefig(Path(path).with_suffix('.png'),dpi=300,bbox_inches='tight')
         if show: plt.show(block=True)
         plt.close(fig)
