@@ -1,5 +1,7 @@
 # pmwMRMS
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24615593.svg)](https://doi.org/10.5281/zenodo.24615593)
+
 Orbit-wise collocation of passive microwave L1C observations from NASA PPS with NOAA MRMS precipitation rate and type. Python 3.10+.
 
 ## Install
