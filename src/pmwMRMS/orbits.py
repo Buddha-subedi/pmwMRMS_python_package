@@ -159,7 +159,8 @@ def assignments(
     lon,
     radius,
     stamps,
-    delta
+    delta,
+    crop=False
 ):
     """
     Assign each MRMS pixel to its nearest PMW footprint.
@@ -250,13 +251,43 @@ def assignments(
         flush=True
     )
 
-    # Process MRMS rows in blocks to limit memory usage.
+    # Crop only the query domain; retain original output grid indices.
+    row0, row1 = 0, len(lat)
+    col0, col1 = 0, len(lon)
+    if crop:
+        # Bounding box of eligible footprint support, plus 1 km.
+        # Use conservative spherical longitude padding at the highest
+        # absolute latitude; this also handles descending grid axes.
+        angle = (radius + 1.0) / EARTH_KM
+        pad_lat = np.rad2deg(angle)
+        south = max(-90.0, source_lat.min() - pad_lat)
+        north = min(90.0, source_lat.max() + pad_lat)
+        rows = np.flatnonzero((lat >= south) & (lat <= north))
+        if not rows.size:
+            return
+        row0, row1 = int(rows[0]), int(rows[-1]) + 1
+        max_abs_lat = max(abs(south), abs(north))
+        # Fall back to all columns near poles or the antimeridian.
+        if max_abs_lat < 90.0 and angle < np.pi / 2:
+            pad_lon = np.rad2deg(np.arcsin(min(1.0,
+                np.sin(angle) / np.cos(np.deg2rad(max_abs_lat)))))
+            west = source_lon.min() - pad_lon
+            east = source_lon.max() + pad_lon
+            if west >= -180 and east <= 180:
+                grid_lon = (lon + 180.0) % 360.0 - 180.0
+                cols = np.flatnonzero((grid_lon >= west) & (grid_lon <= east))
+                if not cols.size:
+                    return
+                col0, col1 = int(cols[0]), int(cols[-1]) + 1
+        cells = (row1 - row0) * (col1 - col0)
+        total = len(lat) * len(lon)
+        print(f"[MRMS QUERY CROP] {row1-row0:,} x {col1-col0:,} = "
+              f"{cells:,}/{total:,} cells ({100*cells/total:.2f}%)", flush=True)
 
-    for i in range(0, len(lat), 64):
-
+    for i in range(row0, row1, 64):
         yy, xx = np.meshgrid(
-            lat[i:i + 64],
-            lon,
+            lat[i:min(i + 64, row1)],
+            lon[col0:col1],
             indexing="ij"
         )
 
@@ -304,11 +335,16 @@ def assignments(
             ti[k[take]] = q[take]
             owner[k[~take]] = -1
 
-        yield (
-            i,
-            owner.reshape(yy.shape),
-            ti.reshape(yy.shape)
-        )
+        # Preserve the existing full-width block interface.
+        if col0 != 0 or col1 != len(lon):
+            full_owner = np.full((yy.shape[0], len(lon)), -1, dtype=np.int32)
+            full_ti = np.full_like(full_owner, -1)
+            full_owner[:, col0:col1] = owner.reshape(yy.shape)
+            full_ti[:, col0:col1] = ti.reshape(yy.shape)
+            yield i, full_owner, full_ti
+        else:
+            yield i, owner.reshape(yy.shape), ti.reshape(yy.shape)
+
 
 
 # ============================================================
@@ -357,6 +393,53 @@ def aggregate(owner, rain, snow, n):
 # ============================================================
 # 6. SHARED AUTOMATIC ORBIT PROCESSING
 # ============================================================
+
+def fill_empty_footprints(src, state, lat, lon, rain, snow, stamps,
+                          index, delta, radius, domain):
+    """Fill empty CONUS footprints from the same-time MRMS grid.
+
+    Prefer valid cells within 1 km; otherwise average up to 100 nearest
+    valid cells within the configured spatial tolerance. No ownership changes.
+    """
+    times = src["time"].ravel()
+    ids = np.flatnonzero(domain.ravel() & (state["count"] == 0))
+    if not ids.size:
+        return
+    q = nearest_time(times[ids], stamps)
+    ids = ids[(q == index) & (np.abs(times[ids] - stamps[index]) <= delta * 60)]
+    angle = radius / EARTH_KM
+    pad = np.rad2deg(angle)
+    glon = (lon + 180) % 360 - 180
+    for j in ids:
+        y = src["lat"].ravel()[j]
+        x = (src["lon"].ravel()[j] + 180) % 360 - 180
+        rows = np.flatnonzero(np.abs(lat - y) <= pad)
+        if not rows.size:
+            continue
+        high = abs(y) + pad
+        lonpad = 180 if high >= 90 or angle >= np.pi/2 else np.rad2deg(
+            np.arcsin(min(1., np.sin(angle)/np.cos(np.deg2rad(high)))))
+        cols = np.flatnonzero(np.abs((glon-x+180)%360-180) <= lonpad)
+        if not cols.size:
+            continue
+        rr = rain[np.ix_(rows, cols)]
+        ss = snow[np.ix_(rows, cols)]
+        a, b = np.nonzero(np.isfinite(rr) & np.isfinite(ss) & (rr >= 0) & (ss >= 0))
+        if not a.size:
+            continue
+        xyz = _xyz(lat[rows[a]], lon[cols[b]])
+        d = np.linalg.norm(xyz - _xyz(np.array([y]), np.array([x]))[0], axis=1)
+        valid = np.flatnonzero(d <= 2*np.sin(angle/2))
+        if not valid.size:
+            continue
+        near = valid[d[valid] <= 2*np.sin(1./(2*EARTH_KM))]
+        if not near.size:
+            k = min(100, valid.size)
+            near = valid[np.argpartition(d[valid], k-1)[:k]]
+        state["fill_count"][j] = near.size
+        state["fill_rain"][j] = np.mean(rr[a[near], b[near]], dtype=np.float64)
+        state["fill_snow"][j] = np.mean(ss[a[near], b[near]], dtype=np.float64)
+
 
 def _run(
     mode,
@@ -821,7 +904,8 @@ def _run(
                         x,
                         max_distance_km,
                         stamps,
-                        delta_t
+                        delta_t,
+                        crop=(mode == "MRMStoPMW")
                     ):
 
                         owner[i:i + len(o)] = o
@@ -849,6 +933,11 @@ def _run(
                         rs=np.zeros(n),
                         ss=np.zeros(n)
                     )
+
+                    if mode == "MRMStoPMW":
+                        states[g].update(fill_count=np.zeros(n, dtype=np.int32),
+                                         fill_rain=np.full(n, np.nan),
+                                         fill_snow=np.full(n, np.nan))
 
                     if mode == "PMWtoMRMS":
 
@@ -945,6 +1034,10 @@ def _run(
                         ss,
                         np.nan
                     )
+
+                if mode == "MRMStoPMW":
+                    fill_empty_footprints(groups[g], state, lat, lon, rain, snow,
+                                          stamps, index, delta_t, max_distance_km, masks[g])
 
                 # Reject pixels without valid precipitation
                 # references from the paired dataset.
@@ -1097,6 +1190,11 @@ def _run(
                     shape
                 )
 
+                filled = (count == 0) & (s["fill_count"] > 0)
+                out[g + "_fallback_count"] = np.where(filled, s["fill_count"], 0).reshape(shape)
+                out[g + "_fallback_mask"] = filled.reshape(shape)
+                print(f"[{g}] Fallback-filled footprints: {filled.sum():,}", flush=True)
+
                 for k, v in [
                     ("rain", s["rs"]),
                     ("snow", s["ss"])
@@ -1111,6 +1209,8 @@ def _run(
                         ),
                         where=count > 0
                     )
+
+                    averaged[filled] = s["fill_" + k][filled]
 
                     out[g + "_" + k] = (
                         averaged
