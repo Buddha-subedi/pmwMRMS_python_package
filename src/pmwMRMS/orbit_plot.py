@@ -32,16 +32,17 @@ def plot_orbit(path, show=True, states=None):
         groups, mode = list(d['groups']), str(d['mode'])
         if mode == 'MRMStoPMW' and ('reference_rain' not in d or 'reference_snow' not in d):
             raise ValueError('Original MRMS reference missing. Regenerate orbit with updated package.')
-        fig = plt.figure(figsize=(19,11.6), facecolor='white')
-        # Fixed map rectangles: preserve geographic aspect and equal panel sizes.
+        fig = plt.figure(figsize=(22,17), facecolor='white')
+        # Fixed map rectangles with a 1.4 vertical aspect multiplier.
         left, right, gap = .065, .98, .012
         width = (right - left - gap) / 2
-        height = width * fig.get_figwidth() / fig.get_figheight() * (30 / 65)
-        row_gap = .045
-        bottom = .18
+        height = width * fig.get_figwidth() / fig.get_figheight() * (30 / 65) * 1.4
+        row_gap = .055
+        bottom = .12
         axes = np.array([[fig.add_axes([left+j*(width+gap), bottom+(1-i)*(height+row_gap), width, height], projection=proj) for j in range(2)] for i in range(2)])
         def setup(ax,i,title):
             ax.set_extent(map_extent,crs=pc)
+            ax.set_aspect(1.4, adjustable="box")
             ax.set_facecolor(ocean)
             ax.add_feature(cf.LAND.with_scale('50m'),facecolor='#FAFAFA',zorder=0)
             ax.add_feature(cf.LAKES.with_scale('50m'),facecolor=ocean,edgecolor='#8AA5B8',linewidth=.35,zorder=1)
@@ -57,8 +58,8 @@ def plot_orbit(path, show=True, states=None):
                 tick.set_fontweight('bold')
             for x,y,t in [(-126.5,33.5,'Pacific\nOcean'),(-70.5,32.5,'Atlantic\nOcean'),(-90,25.5,'Gulf of Mexico')]:
                 ax.text(x,y,t,transform=pc,ha='center',va='center',fontsize=10,fontstyle='italic',color='#315B80',zorder=15)
-            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=20, pad=7)
-            ax.set_title(title,fontsize=18,fontweight='bold',pad=7)
+            ax.set_title(f'({chr(97+i)})',loc='left',fontweight='bold',fontsize=24, pad=7)
+            ax.set_title(title,fontsize=20,fontweight='bold',pad=7)
             ax.spines['geo'].set_linewidth(1)
         def regular(ax,v,cmap,norm,z=3):
             # Render at native grid spacing without allocating coordinate meshes.
@@ -82,12 +83,32 @@ def plot_orbit(path, show=True, states=None):
             xx = np.r_[x[0,:], x[1:,-1], x[-1,-2::-1], x[-2::-1,0]]
             yy = np.r_[y[0,:], y[1:,-1], y[-1,-2::-1], y[-2::-1,0]]
             xx = np.r_[xx, xx[0]]; yy = np.r_[yy, yy[0]]
+            invalid = ~np.isfinite(xx) | ~np.isfinite(yy) | (np.abs(yy)>90)
+            xx[invalid] = np.nan; yy[invalid] = np.nan
             jumps = np.r_[False, np.abs(np.diff(xx)) > 180]
             xx[jumps] = np.nan; yy[jumps] = np.nan
             ax.plot(xx, yy, color='black', linewidth=1.3,
                     transform=pc, zorder=14)
         def native(ax,v,cmap,norm,z=3):
-            return ax.pcolormesh(x,y,v,transform=pc,cmap=cmap,norm=norm,shading='nearest',rasterized=True,zorder=z)
+            v = np.asarray(v)
+            if x.shape != y.shape or v.shape != x.shape:
+                raise ValueError(f"Native grid shape mismatch: lon={x.shape}, lat={y.shape}, data={v.shape}")
+            geo = np.isfinite(x) & np.isfinite(y) & (np.abs(y) <= 90)
+            west, east, south, north = map_extent
+            visible = geo & (x >= west-2) & (x <= east+2) & (y >= south-2) & (y <= north+2)
+            rows = np.flatnonzero(visible.any(axis=1))
+            if not rows.size:
+                return None
+            sl = slice(max(0, rows[0]-1), min(x.shape[0], rows[-1]+2))
+            xx, yy, vv = x[sl], y[sl], v[sl]
+            valid = geo[sl] & np.isfinite(vv)
+            if not valid.any():
+                return None
+            if geo[sl].all() and min(xx.shape) >= 2 and not np.any(np.abs(np.diff(xx, axis=1)) > 180):
+                return ax.pcolormesh(xx, yy, vv, transform=pc, cmap=cmap, norm=norm, shading='nearest', rasterized=True, zorder=z)
+            # Invalid coordinates cannot be passed to pcolormesh. Plot only
+            # genuine valid footprint centers, without inventing geolocation.
+            return ax.scatter(xx[valid], yy[valid], c=vv[valid], s=5, marker='s', linewidths=0, transform=pc, cmap=cmap, norm=norm, rasterized=True, zorder=z)
         def phase(r,s):
             return np.where(np.isfinite(r)&np.isfinite(s),np.where((r==0)&(s==0),0,np.where(r>=s,1,2)),np.nan).astype('float32')
         def pair(axp,axr,r,s,draw):
@@ -165,7 +186,7 @@ def plot_orbit(path, show=True, states=None):
         gap = .055
         start = (.065+.98 - (n*width+(n-1)*gap))/2
         for j,(cmap,norm,label,ticks) in enumerate(scales):
-            cax=fig.add_axes([start+j*(width+gap),.085,width,.022])
+            cax=fig.add_axes([start+j*(width+gap),.055,width,.018])
             cb=fig.colorbar(ScalarMappable(norm=norm,cmap=cmap),cax=cax,ticks=ticks,orientation='horizontal',extend='neither')
             if label == 'Brightness temperature (K)':
                 cb.ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
@@ -186,7 +207,7 @@ def plot_orbit(path, show=True, states=None):
         else:
             stamp=datetime.fromtimestamp(float(d['reference_time']),timezone.utc)
             time_text=f'MRMS reference: {stamp:%Y-%m-%d %H:%M UTC}'
-        fig.suptitle(f'{time_text} | PMW orbit: {orbit_id} | {mode}',fontsize=20,fontweight='bold',y=.985)
+        fig.suptitle(f'{time_text} | PMW orbit: {orbit_id} | {mode}',fontsize=26,fontweight='bold',y=.985)
         fig.savefig(Path(path).with_suffix('.png'),dpi=300,bbox_inches='tight')
         if show: plt.show(block=True)
         plt.close(fig)
