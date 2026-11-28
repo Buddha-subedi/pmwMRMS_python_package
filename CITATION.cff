@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: If you use this software in your research, please cite it using the following
+  metadata.
+title: 'pmwMRMS: A Python Package for Spatiotemporal Collocation of Passive Microwave
+  Observations and Multi-Radar Multi-Sensor Precipitation'
+type: software
+authors:
+- given-names: Buddha
+  family-names: Subedi
+  affiliation: University of Minnesota
+abstract: An open-source Python package for automated downloading, bidirectional spatiotemporal
+  collocation, and visualization of satellite passive microwave brightness temperatures
+  and ground-based Multi-Radar Multi-Sensor rainfall and snowfall observations.
+url: https://pypi.org/project/pmwMRMS/
+keywords:
+- Passive microwave
+- MRMS
+- Rainfall
+- Snowfall
+- Satellite remote sensing
+- Ground-based radar
+- Spatiotemporal collocation
+- Precipitation validation
+- Machine learning
+- Python
+repository-code: https://github.com/Buddha-subedi/pmwMRMS_python_package
