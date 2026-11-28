@@ -135,7 +135,7 @@ def plot_orbit(path, show=True, states=None):
                 draw(ax,np.where(p==1,r,np.nan),rain_cmap,rn,4)
                 draw(ax,np.where(p==2,s,np.nan),snow_cmap,sn,5)
             rate_only(axes[0,0],r,s,regular)
-            matched_outline(axes[0,0],overlap)
+            native_outline(axes[0,0],x,y)
             rate_only(axes[0,1],rr,ss,native)
             native_outline(axes[0,1],x,y)
             axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=18,fontweight='bold',pad=7)
