@@ -138,7 +138,7 @@ def plot_orbit(path, show=True, states=None):
             native_outline(axes[0,0],x,y)
             rate_only(axes[0,1],rr,ss,native)
             native_outline(axes[0,1],x,y)
-            axes[0,0].set_title(f'Coincident MRMS rate ({stamp:%H:%M} UTC reference)',fontsize=19,fontweight='bold',pad=7)
+            axes[0,0].set_title(f'Coincident MRMS rate (native grid, {stamp:%H:%M} UTC)',fontsize=19,fontweight='bold',pad=7)
             axes[0,1].set_title(f'MRMS on PMW grid ({ref})',fontsize=19,fontweight='bold',pad=7)
             tb_artists=[]; tb_min,tb_max=np.inf,-np.inf
             west,east,south,north=map_extent
@@ -257,7 +257,7 @@ def plot_orbit(path, show=True, states=None):
         else:
             orbit_time='orbit time unavailable'
         for ax in axes.flat: ax.set_aspect(1.4,adjustable='box')
-        fig.suptitle(f'{sensor} orbit: {orbit_id} | {orbit_time} | {mode}',fontsize=23,fontweight='bold',y=.985)
+        fig.suptitle(f'{sensor} orbit: {orbit_id} | {orbit_time} | {mode}',fontsize=23,fontweight='bold',color='darkgreen',y=.985)
         fig.savefig(Path(path).with_suffix('.png'),dpi=300,bbox_inches='tight')
         if show: plt.show(block=True)
         plt.close(fig)
